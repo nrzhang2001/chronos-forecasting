@@ -327,6 +327,7 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         self.imputation_method = imputation_method or LeavesMissingValues()
         self.mode = mode
         self.np_dtype = np_dtype
+        self.tokenization_log = []  # Initialize the tokenization log
 
     def preprocess_entry(self, entry: dict, mode: str) -> dict:
         entry = {f: entry[f] for f in ["start", "target"]}

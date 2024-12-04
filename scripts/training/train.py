@@ -693,10 +693,21 @@ def main(
         save_training_info(
             output_dir / "checkpoint-final", training_config=raw_training_config
         )
+        # Save tokenization log
+        train_dataset = ChronosDataset(
+            datasets=train_datasets,
+            probabilities=probability,
+            tokenizer=chronos_config.create_tokenizer(),
+            context_length=context_length,
+            prediction_length=prediction_length,
+            min_past=min_past,
+            model_type=model_type,
+            imputation_method=LastValueImputation() if model_type == "causal" else None,
+            mode="training",
+        )
+        train_dataset.save_tokenization_log(output_dir / "tokenization_log.csv")
         
-    # Save tokenization log at the end
-    shuffled_train_dataset.save_tokenization_log(shuffled_train_dataset.save_tokenization_log(output_dir / "tokenization_log.csv"))
-
+    
 
 if __name__ == "__main__":
     logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")

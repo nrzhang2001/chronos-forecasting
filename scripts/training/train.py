@@ -441,11 +441,21 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
             input_ids[~attention_mask] = self.tokenizer.config.pad_token_id
             labels[~attention_mask] = -100
 
+        # Count tokens and add print statements
+        num_input_tokens = (attention_mask.sum().item())  # Count non-padding tokens in input
+        num_label_tokens = (labels != -100).sum().item()  # Count tokens used in labels
+        total_tokens = num_input_tokens + num_label_tokens
+
+        print("Number of Input Tokens (non-padding):", num_input_tokens)
+        print("Number of Label Tokens:", num_label_tokens)
+        print("Total Tokens:", total_tokens)
+
         return {
             "input_ids": input_ids.squeeze(0),
             "attention_mask": attention_mask.squeeze(0),
             "labels": labels.squeeze(0),
         }
+
 
     def __iter__(self) -> Iterator:
         preprocessed_datasets = [

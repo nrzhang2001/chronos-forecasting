@@ -479,7 +479,7 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         # Count tokens (including padding)
         num_padded_input_tokens = input_ids.size(-1)
         num_padded_label_tokens = (labels != -100).sum().item()
-        total_padded_tokens = num_padded_input_tokens
+        total_padded_tokens = num_padded_input_tokens + num_padded_label_tokens
 
         # Print token counts after padding
         print(f"Number of Padded Input Tokens: {num_padded_input_tokens}")

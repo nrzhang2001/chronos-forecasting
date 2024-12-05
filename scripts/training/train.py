@@ -13,7 +13,6 @@ from copy import deepcopy
 from pathlib import Path
 from functools import partial
 from typing import List, Iterator, Optional, Dict
-import csv
 
 import typer
 from typer_config import use_yaml_config
@@ -327,7 +326,6 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         self.imputation_method = imputation_method or LeavesMissingValues()
         self.mode = mode
         self.np_dtype = np_dtype
-        self.tokenization_log = []  # Initialize the tokenization log
 
     def preprocess_entry(self, entry: dict, mode: str) -> dict:
         entry = {f: entry[f] for f in ["start", "target"]}
@@ -403,7 +401,14 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         labels[labels_mask == 0] = -100
 
         if self.model_type == "causal":
+            # The InstanceSplitter pads time series on the left to be equal to the
+            # context_length. However, certain models (e.g., GPT2) with absolute
+            # position embeddings should not be trained with left padding.
+            # The following piece of code moves padding from left to right.
+
             assert input_ids.shape[-1] == entry["past_is_pad"].shape[0]
+
+            # Find the index where padding starts
             pad_start_idx = np.searchsorted(1 - entry["past_is_pad"], 1)
             padded_input_ids, obs_input_ids = torch.tensor_split(
                 input_ids, [pad_start_idx], dim=-1
@@ -411,28 +416,39 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
             padded_attention_mask, obs_attention_mask = torch.tensor_split(
                 attention_mask, [pad_start_idx], dim=-1
             )
+
+            # Move padding to the right
             input_ids = torch.cat(
-                [obs_input_ids, labels, padded_input_ids],
+                [
+                    obs_input_ids,
+                    labels,
+                    padded_input_ids,
+                ],
                 axis=-1,
             )
             attention_mask = torch.cat(
-                [obs_attention_mask, labels_mask, padded_attention_mask],
+                [
+                    obs_attention_mask,
+                    labels_mask,
+                    padded_attention_mask,
+                ],
                 axis=-1,
             )
+
+            # labels for causal models are same as the input_ids.
+            # Internally transformers shifts the labels by one during training.
             labels = input_ids.clone()
             input_ids[~attention_mask] = self.tokenizer.config.pad_token_id
             labels[~attention_mask] = -100
 
-        num_input_tokens = attention_mask.sum().item()
-        num_label_tokens = (labels != -100).sum().item()
+        # Count tokens and add print statements
+        num_input_tokens = (attention_mask.sum().item())  # Count non-padding tokens in input
+        num_label_tokens = (labels != -100).sum().item()  # Count tokens used in labels
         total_tokens = num_input_tokens + num_label_tokens
 
-        # Log token counts for this instance
-        self.tokenization_log.append({
-            "input_tokens": num_input_tokens,
-            "label_tokens": num_label_tokens,
-            "total_tokens": total_tokens
-        })
+        print("Number of Input Tokens (non-padding):", num_input_tokens)
+        print("Number of Label Tokens:", num_label_tokens)
+        print("Total Tokens:", total_tokens)
 
         return {
             "input_ids": input_ids.squeeze(0),
@@ -440,12 +456,6 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
             "labels": labels.squeeze(0),
         }
 
-    def save_tokenization_log(self, filename: str):
-        """Save the tokenization log to a CSV file."""
-        with open(filename, mode="w", newline="") as file:
-            writer = csv.DictWriter(file, fieldnames=["input_tokens", "label_tokens", "total_tokens"])
-            writer.writeheader()
-            writer.writerows(self.tokenization_log)
 
     def __iter__(self) -> Iterator:
         preprocessed_datasets = [
@@ -693,21 +703,7 @@ def main(
         save_training_info(
             output_dir / "checkpoint-final", training_config=raw_training_config
         )
-        # Save tokenization log
-        train_dataset = ChronosDataset(
-            datasets=train_datasets,
-            probabilities=probability,
-            tokenizer=chronos_config.create_tokenizer(),
-            context_length=context_length,
-            prediction_length=prediction_length,
-            min_past=min_past,
-            model_type=model_type,
-            imputation_method=LastValueImputation() if model_type == "causal" else None,
-            mode="training",
-        )
-        train_dataset.save_tokenization_log(output_dir / "tokenization_log.csv")
-        
-    
+
 
 if __name__ == "__main__":
     logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")

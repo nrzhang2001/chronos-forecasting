@@ -476,20 +476,22 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
             input_ids[~attention_mask] = self.tokenizer.config.pad_token_id
             labels[~attention_mask] = -100
 
-        num_input_tokens = attention_mask.sum().item()
-        num_label_tokens = (labels != -100).sum().item()
-        total_tokens = num_input_tokens + num_label_tokens
+        # Count tokens (including padding)
+        num_padded_input_tokens = input_ids.size(-1)
+        num_padded_label_tokens = (labels != -100).sum().item()
+        total_padded_tokens = num_padded_input_tokens
 
-        # Print token counts for this instance
-        print(f"Number of Input Tokens (non-padding): {num_input_tokens}")
-        print(f"Number of Label Tokens: {num_label_tokens}")
-        print(f"Total Tokens: {total_tokens}")
+        # Print token counts after padding
+        print(f"Number of Padded Input Tokens: {num_padded_input_tokens}")
+        print(f"Number of Padded Label Tokens: {num_padded_label_tokens}")
+        print(f"Total Tokens (including padding): {total_padded_tokens}")
 
         return {
             "input_ids": input_ids.squeeze(0),
             "attention_mask": attention_mask.squeeze(0),
             "labels": labels.squeeze(0),
         }
+
 
 
 

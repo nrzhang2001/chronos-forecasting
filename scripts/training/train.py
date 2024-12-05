@@ -391,6 +391,72 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         data = self._create_instance_splitter("validation").apply(data, is_train=False)
         return data
 
+    # def to_hf_format(self, entry: dict) -> dict:
+    #     past_target = torch.tensor(entry["past_target"]).unsqueeze(0)
+    #     input_ids, attention_mask, scale = self.tokenizer.context_input_transform(
+    #         past_target
+    #     )
+    #     future_target = torch.tensor(entry["future_target"]).unsqueeze(0)
+    #     labels, labels_mask = self.tokenizer.label_input_transform(future_target, scale)
+    #     labels[labels_mask == 0] = -100
+
+    #     if self.model_type == "causal":
+    #         # The InstanceSplitter pads time series on the left to be equal to the
+    #         # context_length. However, certain models (e.g., GPT2) with absolute
+    #         # position embeddings should not be trained with left padding.
+    #         # The following piece of code moves padding from left to right.
+
+    #         assert input_ids.shape[-1] == entry["past_is_pad"].shape[0]
+
+    #         # Find the index where padding starts
+    #         pad_start_idx = np.searchsorted(1 - entry["past_is_pad"], 1)
+    #         padded_input_ids, obs_input_ids = torch.tensor_split(
+    #             input_ids, [pad_start_idx], dim=-1
+    #         )
+    #         padded_attention_mask, obs_attention_mask = torch.tensor_split(
+    #             attention_mask, [pad_start_idx], dim=-1
+    #         )
+
+    #         # Move padding to the right
+    #         input_ids = torch.cat(
+    #             [
+    #                 obs_input_ids,
+    #                 labels,
+    #                 padded_input_ids,
+    #             ],
+    #             axis=-1,
+    #         )
+    #         attention_mask = torch.cat(
+    #             [
+    #                 obs_attention_mask,
+    #                 labels_mask,
+    #                 padded_attention_mask,
+    #             ],
+    #             axis=-1,
+    #         )
+
+    #         # labels for causal models are same as the input_ids.
+    #         # Internally transformers shifts the labels by one during training.
+    #         labels = input_ids.clone()
+    #         input_ids[~attention_mask] = self.tokenizer.config.pad_token_id
+    #         labels[~attention_mask] = -100
+
+    #     # Count tokens and add print statements
+    #     num_input_tokens = (attention_mask.sum().item())  # Count non-padding tokens in input
+    #     num_label_tokens = (labels != -100).sum().item()  # Count tokens used in labels
+    #     total_tokens = num_input_tokens + num_label_tokens
+
+    #     print("Number of Input Tokens (non-padding):", num_input_tokens)
+    #     print("Number of Label Tokens:", num_label_tokens)
+    #     print("Total Tokens:", total_tokens)
+
+    #     return {
+    #         "input_ids": input_ids.squeeze(0),
+    #         "attention_mask": attention_mask.squeeze(0),
+    #         "labels": labels.squeeze(0),
+    #     }
+    
+    # With Paddings
     def to_hf_format(self, entry: dict) -> dict:
         past_target = torch.tensor(entry["past_target"]).unsqueeze(0)
         input_ids, attention_mask, scale = self.tokenizer.context_input_transform(
@@ -401,13 +467,8 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         labels[labels_mask == 0] = -100
 
         if self.model_type == "causal":
-            # The InstanceSplitter pads time series on the left to be equal to the
-            # context_length. However, certain models (e.g., GPT2) with absolute
-            # position embeddings should not be trained with left padding.
-            # The following piece of code moves padding from left to right.
-
+            # Causal models require special handling for padding
             assert input_ids.shape[-1] == entry["past_is_pad"].shape[0]
-
             # Find the index where padding starts
             pad_start_idx = np.searchsorted(1 - entry["past_is_pad"], 1)
             padded_input_ids, obs_input_ids = torch.tensor_split(
@@ -416,45 +477,32 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
             padded_attention_mask, obs_attention_mask = torch.tensor_split(
                 attention_mask, [pad_start_idx], dim=-1
             )
-
             # Move padding to the right
             input_ids = torch.cat(
-                [
-                    obs_input_ids,
-                    labels,
-                    padded_input_ids,
-                ],
+                [obs_input_ids, labels, padded_input_ids],
                 axis=-1,
             )
             attention_mask = torch.cat(
-                [
-                    obs_attention_mask,
-                    labels_mask,
-                    padded_attention_mask,
-                ],
+                [obs_attention_mask, labels_mask, padded_attention_mask],
                 axis=-1,
             )
-
-            # labels for causal models are same as the input_ids.
-            # Internally transformers shifts the labels by one during training.
+            # Labels for causal models are the same as the input_ids.
+            # Transformers internally shifts the labels by one during training.
             labels = input_ids.clone()
             input_ids[~attention_mask] = self.tokenizer.config.pad_token_id
             labels[~attention_mask] = -100
 
-        # Count tokens and add print statements
-        num_input_tokens = (attention_mask.sum().item())  # Count non-padding tokens in input
-        num_label_tokens = (labels != -100).sum().item()  # Count tokens used in labels
-        total_tokens = num_input_tokens + num_label_tokens
-
-        print("Number of Input Tokens (non-padding):", num_input_tokens)
-        print("Number of Label Tokens:", num_label_tokens)
-        print("Total Tokens:", total_tokens)
+        # Add print statements to observe the tokenized outputs after padding
+        print("Tokenized Input IDs:", input_ids)
+        print("Attention Mask:", attention_mask)
+        print("Labels:", labels)
 
         return {
             "input_ids": input_ids.squeeze(0),
             "attention_mask": attention_mask.squeeze(0),
             "labels": labels.squeeze(0),
         }
+
 
 
     def __iter__(self) -> Iterator:

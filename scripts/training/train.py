@@ -326,7 +326,7 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         self.imputation_method = imputation_method or LeavesMissingValues()
         self.mode = mode
         self.np_dtype = np_dtype
-        self.tokenization_log = []  # Initialize the tokenization log
+        # self.tokenization_log = []  # Initialize the tokenization log
 
     def preprocess_entry(self, entry: dict, mode: str) -> dict:
         entry = {f: entry[f] for f in ["start", "target"]}
@@ -460,56 +460,37 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
     # With Paddings
     def to_hf_format(self, entry: dict) -> dict:
         past_target = torch.tensor(entry["past_target"]).unsqueeze(0)
-        input_ids, attention_mask, scale = self.tokenizer.context_input_transform(
-            past_target
-        )
+        input_ids, attention_mask, scale = self.tokenizer.context_input_transform(past_target)
         future_target = torch.tensor(entry["future_target"]).unsqueeze(0)
         labels, labels_mask = self.tokenizer.label_input_transform(future_target, scale)
         labels[labels_mask == 0] = -100
 
         if self.model_type == "causal":
-            # Causal models require special handling for padding
             assert input_ids.shape[-1] == entry["past_is_pad"].shape[0]
-            # Find the index where padding starts
             pad_start_idx = np.searchsorted(1 - entry["past_is_pad"], 1)
-            padded_input_ids, obs_input_ids = torch.tensor_split(
-                input_ids, [pad_start_idx], dim=-1
-            )
-            padded_attention_mask, obs_attention_mask = torch.tensor_split(
-                attention_mask, [pad_start_idx], dim=-1
-            )
-            # Move padding to the right
-            input_ids = torch.cat(
-                [obs_input_ids, labels, padded_input_ids],
-                axis=-1,
-            )
-            attention_mask = torch.cat(
-                [obs_attention_mask, labels_mask, padded_attention_mask],
-                axis=-1,
-            )
-            # Labels for causal models are the same as the input_ids.
-            # Transformers internally shifts the labels by one during training.
+            padded_input_ids, obs_input_ids = torch.tensor_split(input_ids, [pad_start_idx], dim=-1)
+            padded_attention_mask, obs_attention_mask = torch.tensor_split(attention_mask, [pad_start_idx], dim=-1)
+            input_ids = torch.cat([obs_input_ids, labels, padded_input_ids], axis=-1)
+            attention_mask = torch.cat([obs_attention_mask, labels_mask, padded_attention_mask], axis=-1)
             labels = input_ids.clone()
             input_ids[~attention_mask] = self.tokenizer.config.pad_token_id
             labels[~attention_mask] = -100
 
-        # Calculate token counts after padding
-        num_padded_input_tokens = attention_mask.sum().item()
-        num_padded_label_tokens = (labels != -100).sum().item()
-        total_padded_tokens = num_padded_input_tokens + num_padded_label_tokens
+        num_input_tokens = attention_mask.sum().item()
+        num_label_tokens = (labels != -100).sum().item()
+        total_tokens = num_input_tokens + num_label_tokens
 
-        # Log token counts
-        self.tokenization_log.append({
-            "input_tokens_with_padding": num_padded_input_tokens,
-            "label_tokens_with_padding": num_padded_label_tokens,
-            "total_tokens_with_padding": total_padded_tokens
-        })
+        # Print token counts for this instance
+        print(f"Number of Input Tokens (non-padding): {num_input_tokens}")
+        print(f"Number of Label Tokens: {num_label_tokens}")
+        print(f"Total Tokens: {total_tokens}")
 
         return {
             "input_ids": input_ids.squeeze(0),
             "attention_mask": attention_mask.squeeze(0),
             "labels": labels.squeeze(0),
         }
+
 
 
 
